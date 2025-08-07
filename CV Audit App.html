@@ -1,0 +1,678 @@
+<!DOCTYPE html><html lang="en" class="h-full"><head><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Computer Vision Model Audit App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#5D5CDE',
+                        'primary-dark': '#4C4BC9'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .drag-over {
+            background-color: rgba(93, 92, 222, 0.1);
+            border-color: #5D5CDE;
+        }
+        .tab-active {
+            background-color: #5D5CDE;
+            color: white;
+        }
+    </style>
+</head>
+<body class="h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+    <div class="min-h-full flex flex-col">
+        <!-- Header -->
+        <header class="bg-primary text-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4 py-6">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <h1 class="text-2xl md:text-3xl font-bold">Computer Vision Model Audit App</h1>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="text" id="auditorName" placeholder="Auditor Name" class="px-3 py-2 text-base text-gray-900 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-dark focus:border-transparent">
+                        <div class="flex gap-2">
+                            <button onclick="saveAudit()" class="px-4 py-2 bg-green-500 hover:bg-green-600 rounded-lg font-medium transition-colors">
+                                <i class="fas fa-save mr-2"></i>Save
+                            </button>
+                            <button onclick="loadAudit()" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-medium transition-colors">
+                                <i class="fas fa-upload mr-2"></i>Load
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
+
+
+            <!-- Audit Tabs -->
+            <div class="mb-6">
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <div id="auditTabs" class="flex flex-wrap gap-2"></div>
+                    <button onclick="addAuditTab()" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors font-medium">
+                        <i class="fas fa-plus mr-2"></i>Add Audit
+                    </button>
+                </div>
+                
+                <!-- Audit Content -->
+                <div id="auditContent" class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 min-h-96">
+                    <div id="noAuditMessage" class="text-center text-gray-500 dark:text-gray-400 py-12">
+                        <i class="fas fa-clipboard-list text-4xl mb-4"></i>
+                        <p class="text-lg">No audits created yet. Click "Add Audit" to get started.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Hidden file input for loading -->
+    <input type="file" id="loadFileInput" accept=".json" class="hidden">
+
+    <script>
+        // Dark mode detection
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (event.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+
+        // Global state
+        let auditData = {
+            auditorName: '',
+            createdDate: '',
+            audits: []
+        };
+        let currentAuditIndex = -1;
+        let auditCounter = 0;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            auditData.createdDate = new Date().toISOString();
+        });
+
+        // Audit main image functionality
+        function setupAuditMainImageDropZone(auditIndex) {
+            const dropZone = document.getElementById(`auditMainDropZone_${auditIndex}`);
+            const fileInput = document.getElementById(`auditMainFileInput_${auditIndex}`);
+
+            if (!dropZone || !fileInput) return;
+
+            dropZone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (event) => handleAuditMainImageFile(event, auditIndex));
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('drag-over');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                const files = Array.from(e.dataTransfer.files);
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    handleAuditMainImageFile({ target: { files: files } }, auditIndex);
+                }
+            });
+        }
+
+        function handleAuditMainImageFile(event, auditIndex) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                auditData.audits[auditIndex].mainImage = e.target.result;
+                renderAuditTabs();
+                renderAuditContent();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeAuditMainImage(auditIndex) {
+            auditData.audits[auditIndex].mainImage = null;
+            renderAuditTabs();
+            renderAuditContent();
+        }
+
+        // Audit tab management
+        function addAuditTab() {
+            if (auditData.audits.length >= 10) {
+                showCustomAlert('Maximum of 10 audits allowed');
+                return;
+            }
+
+            auditCounter++;
+            const audit = {
+                id: auditCounter,
+                name: `Audit ${auditCounter}`,
+                date: new Date().toISOString().split('T')[0],
+                provider: '',
+                mainImage: null,
+                comments: []
+            };
+            
+            auditData.audits.push(audit);
+            renderAuditTabs();
+            selectAudit(auditData.audits.length - 1);
+        }
+
+        function renderAuditTabs() {
+            const tabsContainer = document.getElementById('auditTabs');
+            tabsContainer.innerHTML = '';
+
+            auditData.audits.forEach((audit, index) => {
+                const tab = document.createElement('div');
+                tab.className = `relative rounded-lg cursor-pointer transition-colors font-medium border-2 ${
+                    index === currentAuditIndex 
+                        ? 'tab-active border-primary' 
+                        : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600'
+                }`;
+                
+                const thumbnailHtml = audit.mainImage 
+                    ? `<img src="${audit.mainImage}" class="w-16 h-16 object-cover rounded-lg mb-2" alt="Audit thumbnail">`
+                    : `<div class="w-16 h-16 bg-gray-300 dark:bg-gray-600 rounded-lg mb-2 flex items-center justify-center">
+                         <i class="fas fa-image text-gray-500 text-xl"></i>
+                       </div>`;
+                
+                tab.innerHTML = `
+                    <div class="p-3 text-center" onclick="selectAudit(${index})">
+                        ${thumbnailHtml}
+                        <div class="text-sm font-medium">${audit.name}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">${audit.provider || 'No provider'}</div>
+                    </div>
+                    <button onclick="event.stopPropagation(); removeAudit(${index})" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 z-10">×</button>
+                `;
+                tabsContainer.appendChild(tab);
+            });
+        }
+
+        function selectAudit(index) {
+            currentAuditIndex = index;
+            renderAuditTabs();
+            renderAuditContent();
+        }
+
+        function removeAudit(index) {
+            showConfirmDialog('Are you sure you want to remove this audit?', () => {
+                auditData.audits.splice(index, 1);
+                if (currentAuditIndex >= auditData.audits.length) {
+                    currentAuditIndex = auditData.audits.length - 1;
+                }
+                renderAuditTabs();
+                if (auditData.audits.length === 0) {
+                    currentAuditIndex = -1;
+                    renderNoAuditMessage();
+                } else {
+                    renderAuditContent();
+                }
+            });
+        }
+
+        function renderAuditContent() {
+            const contentDiv = document.getElementById('auditContent');
+            
+            if (currentAuditIndex === -1 || !auditData.audits[currentAuditIndex]) {
+                renderNoAuditMessage();
+                return;
+            }
+
+            const audit = auditData.audits[currentAuditIndex];
+            
+            contentDiv.innerHTML = `
+                <div class="mb-6">
+                    <!-- Audit Header -->
+                    <div class="bg-white dark:bg-gray-700 rounded-lg p-4 mb-6 shadow">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">Audit Name</label>
+                                <input type="text" value="${audit.name}" onchange="updateAuditField(${currentAuditIndex}, 'name', this.value)"
+                                       class="w-full px-3 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-primary focus:border-transparent">
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">Date</label>
+                                <input type="date" value="${audit.date || ''}" onchange="updateAuditField(${currentAuditIndex}, 'date', this.value)"
+                                       class="w-full px-3 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-primary focus:border-transparent">
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">Provider</label>
+                                <input type="text" value="${audit.provider || ''}" onchange="updateAuditField(${currentAuditIndex}, 'provider', this.value)"
+                                       placeholder="e.g., OpenAI, Google, Microsoft..."
+                                       class="w-full px-3 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-primary focus:border-transparent">
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end">
+                            <button onclick="addComment(${currentAuditIndex})" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors font-medium">
+                                <i class="fas fa-plus mr-2"></i>Add Comment
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Main Screenshot -->
+                    <div class="bg-white dark:bg-gray-700 rounded-lg p-4 mb-6 shadow">
+                        <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Main Screenshot</h3>
+                        <div id="auditMainDropZone_${currentAuditIndex}" class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
+                            ${audit.mainImage ? `
+                                <div>
+                                    <img src="${audit.mainImage}" class="max-w-full max-h-64 mx-auto rounded-lg shadow-lg mb-3" alt="Main audit screenshot">
+                                    <button onclick="removeAuditMainImage(${currentAuditIndex})" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
+                                        <i class="fas fa-trash mr-1"></i>Remove
+                                    </button>
+                                </div>
+                            ` : `
+                                <div>
+                                    <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-3"></i>
+                                    <p class="text-gray-600 dark:text-gray-400 mb-2">Drag and drop the main screenshot here</p>
+                                    <p class="text-sm text-gray-500">or click to select a file</p>
+                                </div>
+                            `}
+                        </div>
+                        <input type="file" id="auditMainFileInput_${currentAuditIndex}" accept="image/*" class="hidden">
+                    </div>
+                    
+                    <div id="commentsContainer" class="space-y-4">
+                        ${renderComments(audit.comments)}
+                    </div>
+                </div>
+            `;
+            
+            // Setup the main image drop zone after rendering
+            setTimeout(() => setupAuditMainImageDropZone(currentAuditIndex), 100);
+        }
+
+        function renderNoAuditMessage() {
+            const contentDiv = document.getElementById('auditContent');
+            contentDiv.innerHTML = `
+                <div id="noAuditMessage" class="text-center text-gray-500 dark:text-gray-400 py-12">
+                    <i class="fas fa-clipboard-list text-4xl mb-4"></i>
+                    <p class="text-lg">No audits created yet. Click "Add Audit" to get started.</p>
+                </div>
+            `;
+        }
+
+        function updateAuditField(auditIndex, field, value) {
+            auditData.audits[auditIndex][field] = value;
+            if (field === 'name') {
+                renderAuditTabs();
+            }
+        }
+
+        // Comment management
+        function addComment(auditIndex) {
+            const audit = auditData.audits[auditIndex];
+            if (audit.comments.length >= 10) {
+                showCustomAlert('Maximum of 10 comments allowed per audit');
+                return;
+            }
+
+            const comment = {
+                id: Date.now(),
+                text: '',
+                error: '',
+                solution: '',
+                images: [],
+                timestamp: new Date().toISOString()
+            };
+            
+            audit.comments.push(comment);
+            renderAuditContent();
+        }
+
+        function renderComments(comments) {
+            if (comments.length === 0) {
+                return '<div class="text-center text-gray-500 dark:text-gray-400 py-8">No comments yet. Click "Add Comment" to start.</div>';
+            }
+
+            return comments.map((comment, index) => `
+                <div class="bg-white dark:bg-gray-700 rounded-lg p-4 shadow">
+                    <div class="flex justify-between items-start mb-3">
+                        <span class="text-sm text-gray-500 dark:text-gray-400">
+                            ${new Date(comment.timestamp).toLocaleString()}
+                        </span>
+                        <div class="flex gap-2">
+                            <button onclick="pasteFromClipboard(${currentAuditIndex}, ${index})" class="text-blue-500 hover:text-blue-700 text-sm" title="Paste from clipboard">
+                                <i class="fas fa-paste"></i>
+                            </button>
+                            <button onclick="removeComment(${currentAuditIndex}, ${index})" class="text-red-500 hover:text-red-700">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Error Description</label>
+                                <button onclick="copyToClipboard('${comment.error.replace(/'/g, "\\'")}', 'Error')" class="text-blue-500 hover:text-blue-700 text-sm" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <textarea onchange="updateCommentField(${currentAuditIndex}, ${index}, 'error', this.value)" 
+                                      placeholder="Describe the error or issue found..." 
+                                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-base focus:ring-2 focus:ring-primary focus:border-transparent resize-vertical min-h-24">${comment.error || ''}</textarea>
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Solution / Best Practice</label>
+                                <button onclick="copyToClipboard('${comment.solution.replace(/'/g, "\\'")}', 'Solution')" class="text-blue-500 hover:text-blue-700 text-sm" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <textarea onchange="updateCommentField(${currentAuditIndex}, ${index}, 'solution', this.value)" 
+                                      placeholder="Provide solution or best practice to prevent this error..." 
+                                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-base focus:ring-2 focus:ring-primary focus:border-transparent resize-vertical min-h-24">${comment.solution || ''}</textarea>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Additional Comments</label>
+                            <button onclick="copyToClipboard('${comment.text.replace(/'/g, "\\'")}', 'Comment')" class="text-blue-500 hover:text-blue-700 text-sm" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <textarea onchange="updateCommentField(${currentAuditIndex}, ${index}, 'text', this.value)" 
+                                  placeholder="Additional notes or observations..." 
+                                  class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-base focus:ring-2 focus:ring-primary focus:border-transparent resize-vertical min-h-24">${comment.text}</textarea>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">Screenshots</label>
+                        <div class="flex flex-wrap gap-2 mb-3">
+                            ${comment.images.map((img, imgIndex) => `
+                                <div class="relative">
+                                    <img src="${img}" class="w-24 h-24 object-cover rounded-lg cursor-pointer" onclick="showImageModal('${img}')">
+                                    <button onclick="removeCommentImage(${currentAuditIndex}, ${index}, ${imgIndex})" 
+                                            class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600">×</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:border-primary transition-colors"
+                             onclick="triggerCommentImageUpload(${currentAuditIndex}, ${index})"
+                             ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                             ondragleave="this.classList.remove('drag-over')"
+                             ondrop="handleCommentImageDrop(event, ${currentAuditIndex}, ${index})">
+                            <i class="fas fa-image text-2xl text-gray-400 mb-2"></i>
+                            <p class="text-sm text-gray-500">Drop images here or click to upload</p>
+                        </div>
+                        <input type="file" id="commentImageInput_${currentAuditIndex}_${index}" multiple accept="image/*" class="hidden" onchange="handleCommentImageFile(event, ${currentAuditIndex}, ${index})">
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateCommentField(auditIndex, commentIndex, field, value) {
+            auditData.audits[auditIndex].comments[commentIndex][field] = value;
+        }
+
+        // Clipboard functionality
+        async function copyToClipboard(text, type) {
+            try {
+                await navigator.clipboard.writeText(text);
+                showCustomAlert(`${type} copied to clipboard!`);
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showCustomAlert(`${type} copied to clipboard!`);
+                } catch (fallbackErr) {
+                    showCustomAlert('Failed to copy to clipboard');
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
+        async function pasteFromClipboard(auditIndex, commentIndex) {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text) {
+                    showPasteModal(text, auditIndex, commentIndex);
+                } else {
+                    showCustomAlert('Clipboard is empty');
+                }
+            } catch (err) {
+                showCustomAlert('Unable to access clipboard. Please copy the text manually.');
+            }
+        }
+
+        function showPasteModal(clipboardText, auditIndex, commentIndex) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+            modal.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Paste Content</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Where would you like to paste this content?</p>
+                    
+                    <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded border max-h-32 overflow-y-auto">
+                        <pre class="text-sm whitespace-pre-wrap">${clipboardText}</pre>
+                    </div>
+                    
+                    <div class="flex flex-col gap-2 mb-4">
+                        <button onclick="pasteTo('error', '${clipboardText.replace(/'/g, "\\'")}', ${auditIndex}, ${commentIndex}); this.closest('.fixed').remove()" 
+                                class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors text-left">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>Paste to Error Description
+                        </button>
+                        <button onclick="pasteTo('solution', '${clipboardText.replace(/'/g, "\\'")}', ${auditIndex}, ${commentIndex}); this.closest('.fixed').remove()" 
+                                class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors text-left">
+                            <i class="fas fa-lightbulb mr-2"></i>Paste to Solution/Best Practice
+                        </button>
+                        <button onclick="pasteTo('text', '${clipboardText.replace(/'/g, "\\'")}', ${auditIndex}, ${commentIndex}); this.closest('.fixed').remove()" 
+                                class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-left">
+                            <i class="fas fa-comment mr-2"></i>Paste to Additional Comments
+                        </button>
+                    </div>
+                    
+                    <div class="flex justify-end">
+                        <button class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors" onclick="this.closest('.fixed').remove()">Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function pasteTo(field, text, auditIndex, commentIndex) {
+            auditData.audits[auditIndex].comments[commentIndex][field] = text;
+            renderAuditContent();
+            showCustomAlert(`Content pasted to ${field === 'text' ? 'Additional Comments' : field === 'error' ? 'Error Description' : 'Solution/Best Practice'}!`);
+        }
+
+        function removeComment(auditIndex, commentIndex) {
+            showConfirmDialog('Are you sure you want to remove this comment?', () => {
+                auditData.audits[auditIndex].comments.splice(commentIndex, 1);
+                renderAuditContent();
+            });
+        }
+
+        function triggerCommentImageUpload(auditIndex, commentIndex) {
+            document.getElementById(`commentImageInput_${auditIndex}_${commentIndex}`).click();
+        }
+
+        function handleCommentImageFile(event, auditIndex, commentIndex) {
+            const files = Array.from(event.target.files);
+            files.forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        auditData.audits[auditIndex].comments[commentIndex].images.push(e.target.result);
+                        renderAuditContent();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        function handleCommentImageDrop(event, auditIndex, commentIndex) {
+            event.preventDefault();
+            event.target.classList.remove('drag-over');
+            const files = Array.from(event.dataTransfer.files);
+            files.forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        auditData.audits[auditIndex].comments[commentIndex].images.push(e.target.result);
+                        renderAuditContent();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        function removeCommentImage(auditIndex, commentIndex, imageIndex) {
+            auditData.audits[auditIndex].comments[commentIndex].images.splice(imageIndex, 1);
+            renderAuditContent();
+        }
+
+        function showImageModal(imageSrc) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4';
+            modal.innerHTML = `
+                <div class="relative max-w-full max-h-full">
+                    <img src="${imageSrc}" class="max-w-full max-h-full object-contain">
+                    <button onclick="this.closest('.fixed').remove()" 
+                            class="absolute top-4 right-4 bg-white text-black rounded-full w-8 h-8 flex items-center justify-center hover:bg-gray-200">×</button>
+                </div>
+            `;
+            modal.onclick = (e) => {
+                if (e.target === modal) modal.remove();
+            };
+            document.body.appendChild(modal);
+        }
+
+        // Save/Load functionality
+        function saveAudit() {
+            const auditorName = document.getElementById('auditorName').value;
+            if (!auditorName.trim()) {
+                showCustomAlert('Please enter the auditor name before saving');
+                return;
+            }
+
+            auditData.auditorName = auditorName;
+            auditData.lastModified = new Date().toISOString();
+
+            const dataStr = JSON.stringify(auditData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `audit_${auditorName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showCustomAlert('Audit saved successfully!');
+        }
+
+        function loadAudit() {
+            document.getElementById('loadFileInput').click();
+        }
+
+        document.getElementById('loadFileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const loadedData = JSON.parse(e.target.result);
+                    auditData = loadedData;
+                    
+                    // Update UI
+                    document.getElementById('auditorName').value = auditData.auditorName || '';
+                    
+                    // Restore audit counter
+                    auditCounter = auditData.audits.length > 0 ? Math.max(...auditData.audits.map(a => a.id), 0) : 0;
+                    
+                    // Render audits
+                    currentAuditIndex = auditData.audits.length > 0 ? 0 : -1;
+                    renderAuditTabs();
+                    if (currentAuditIndex >= 0) {
+                        renderAuditContent();
+                    } else {
+                        renderNoAuditMessage();
+                    }
+                    
+                    showCustomAlert('Audit loaded successfully!');
+                } catch (error) {
+                    showCustomAlert('Error loading file. Please make sure it\'s a valid audit file.');
+                }
+            };
+            reader.readAsText(file);
+            
+            // Reset the input
+            event.target.value = '';
+        });
+
+        // Custom modal functions
+        function showCustomAlert(message) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+            modal.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full">
+                    <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                    <div class="flex justify-end">
+                        <button class="px-4 py-2 bg-primary text-white hover:bg-primary-dark rounded transition-colors" onclick="this.closest('.fixed').remove()">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function showConfirmDialog(message, onConfirm) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+            modal.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full">
+                    <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                    <div class="flex justify-end space-x-3">
+                        <button id="cancelBtn" class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors">Cancel</button>
+                        <button id="confirmBtn" class="px-4 py-2 bg-red-500 text-white hover:bg-red-600 rounded transition-colors">Confirm</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Add event listeners after adding to DOM
+            modal.querySelector('#cancelBtn').addEventListener('click', () => {
+                modal.remove();
+            });
+            
+            modal.querySelector('#confirmBtn').addEventListener('click', () => {
+                modal.remove();
+                onConfirm();
+            });
+            
+            // Close on backdrop click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+    </script>
+
+
+</body></html>
